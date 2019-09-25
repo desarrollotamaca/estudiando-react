@@ -1,11 +1,14 @@
 import React, { Component } from 'react';
+import PubSub from 'pubsub-js';
+
 import {
   Table, 
   Button,
   Form,
   FormGroup,
   Label,
-  Input
+  Input,
+  Alert
 } from 'reactstrap';
 
 class FormProduct extends Component {
@@ -26,14 +29,14 @@ class FormProduct extends Component {
   }
 
   create = () => {
-    console.log(this.props);
-    let data = {
-      id: parseInt(this.state.model.id),
-      nombres: this.state.model.nombres,
-      valor: parseInt(this.state.model.valor),
-      descripcion: this.state.model.descripcion,
-    }
-    this.props.productCreate(data);
+    this.props.productCreate(this.state.model);
+    this.setState({model:{id:0,nombres:'',valor:0, descripcion:''}})
+  }
+
+  componentWillMount(){
+    PubSub.subscribe('edit-product', (topic, product) => {
+      this.setState({model:product});
+    })
   }
 
   render(){
@@ -67,6 +70,10 @@ class ListProduct extends Component {
     this.props.deleteProduct(id);
   }
 
+  onEdit = (product) => {
+    PubSub.publish('edit-product', product);
+  }
+
   render(){
     const { products} = this.props;
     return(
@@ -87,7 +94,7 @@ class ListProduct extends Component {
                 <td>{product.descripcion}</td>
                 <td>{product.valor}</td>
                 <td>
-                  <Button color="info" size="sm">Edit</Button>
+                  <Button color="info" size="sm" onClick={e => this.onEdit(product)}>Edit</Button>
                   <Button color="danger" size="sm" onClick={e => this.delete(product.id)}>Delete</Button>
                 </td>
               </tr>
@@ -104,7 +111,11 @@ export default class ProductBox extends Component {
   Url = 'http://127.0.0.1:8000/'
 
   state = {
-    products : []
+    products : [],
+    message: {
+      text: '',
+      alert: ''
+    }
   }
 
   
@@ -116,11 +127,48 @@ export default class ProductBox extends Component {
       .catch(e => console.log(e));
   }
 
-  create = (product) => {
+  save = (product) => {
     
+    let data = {
+      id: parseInt(product.id),
+      nombres: product.nombres,
+      valor: parseInt(product.valor),
+      descripcion: product.descripcion,
+    } 
+
     const requestInfo = {
       method:'POST',
-      body: JSON.stringify(product),
+      body: JSON.stringify(data),
+      headers: new Headers({
+        'Content-type':'application/json'
+      })
+    };
+
+    if(data.id === 0){
+      fetch(this.Url+'saveProducto', requestInfo)
+      .then(response => response.json())
+      .then( data => {
+        let {products} = this.state;
+        products.push(data.producto);
+        this.setState({ products, message:{text: 'Producto agregado exitosamente', alert:'success'} });
+      })
+      .catch(e => console.log(e));
+    }else{
+      fetch(this.Url+'editProducto', requestInfo)
+      .then(response => response.json())
+      .then( data => {
+        let {products} = this.state;
+        let position = products.findIndex(product => product.id === data.id);
+        products[position] = data.producto;
+        this.setState({ products, message:{text: 'Producto actualizado exitosamente', alert:'info'} });
+      })
+      .catch(e => console.log(e));
+    }
+    this.timerMessage(3000);
+
+    /*const requestInfo = {
+      method:'POST',
+      body: JSON.stringify(data),
       headers: new Headers({
         'Content-type':'application/json'
       })
@@ -133,7 +181,7 @@ export default class ProductBox extends Component {
         products.push(data.producto);
         this.setState({ products });
       })
-      .catch(e => console.log(e));
+      .catch(e => console.log(e));*/
   }
 
   delete = (id) => {
@@ -150,17 +198,33 @@ export default class ProductBox extends Component {
       .then(response => response.json())
       .then( rows => {
         const products = this.state.products.filter(product => product.id !== id);
-        this.setState({products});
+        this.setState({products, message:{text: 'Producto eliminado exitosamente', alert:'danger'}});
+        this.timerMessage(3000);
       })
       .catch(e => console.log(e));
+  }
+
+  timerMessage = (duration) => {
+    setTimeout(()=>{
+        this.setState({message: {text:'', alert:''}});
+    }, duration)
   }
 
   render(){
     return(
       <div className="row">
+        <div className="col-md-12">
+          {
+            this.state.message.text !== '' ? (
+              <Alert color={this.state.message.alert}>{this.state.message.text}</Alert>
+            ) : ''
+          }
+        </div>
+       
+
         <div className="col-md-6">
           <h2 className="font-weight-bold text-center">Module Products</h2>
-          <FormProduct productCreate={this.create} />
+          <FormProduct productCreate={this.save} />
         </div>
         <div className="col-md-6">
           <h2 className="font-weight-bold text-center">List Products</h2>
